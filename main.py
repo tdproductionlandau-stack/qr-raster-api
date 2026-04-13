@@ -52,6 +52,76 @@ def next_job_id() -> str:
     max_id = max(int(k) for k in jobs.keys() if k.isdigit())
     return str(max_id + 1)
 
+# ── QR-Code-Erkennung & Auto-Crop ──
+def extract_qr_from_image(image_path: str) -> str:
+    """
+    Erkennt den QR-Code im Bild, schneidet ihn aus und speichert ihn als neue Datei.
+    Gibt den Pfad zur ausgeschnittenen Datei zurück (oder original wenn kein QR gefunden).
+    """
+    import cv2
+    import numpy as np
+
+    img = cv2.imread(image_path)
+    if img is None:
+        # Fallback: PIL laden und als PNG speichern
+        from PIL import Image as PILImage
+        pil_img = PILImage.open(image_path)
+        if pil_img.mode != 'RGB':
+            pil_img = pil_img.convert('RGB')
+        tmp = image_path + '_converted.png'
+        pil_img.save(tmp)
+        img = cv2.imread(tmp)
+        if img is None:
+            return image_path
+
+    detector = cv2.QRCodeDetector()
+
+    # Verschiedene Strategien für robuste Erkennung
+    strategies = [
+        img,
+        cv2.cvtColor(img, cv2.COLOR_BGR2GRAY),
+        cv2.threshold(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1],
+        cv2.resize(img, None, fx=2, fy=2),
+        cv2.resize(img, None, fx=0.5, fy=0.5),
+    ]
+
+    bbox = None
+    scale = 1.0
+    for i, proc in enumerate(strategies):
+        if len(proc.shape) == 2:
+            test = cv2.cvtColor(proc, cv2.COLOR_GRAY2BGR)
+        else:
+            test = proc
+        _, b, _ = detector.detectAndDecode(test)
+        if b is not None:
+            bbox = b
+            if i == 3:  # 2x upscale
+                scale = 2.0
+            elif i == 4:  # 0.5x downscale
+                scale = 0.5
+            break
+
+    if bbox is None:
+        # Kein QR-Code gefunden – original zurückgeben
+        return image_path
+
+    # Bounding Box berechnen (mit Scale-Korrektur)
+    pts = (bbox[0] / scale).astype(int)
+    x_min, y_min = pts[:, 0].min(), pts[:, 1].min()
+    x_max, y_max = pts[:, 0].max(), pts[:, 1].max()
+
+    # Padding
+    pad = max(10, int((x_max - x_min) * 0.05))
+    x_min = max(0, x_min - pad)
+    y_min = max(0, y_min - pad)
+    x_max = min(img.shape[1], x_max + pad)
+    y_max = min(img.shape[0], y_max + pad)
+
+    cropped = img[y_min:y_max, x_min:x_max]
+    out_path = image_path + '_qr_crop.png'
+    cv2.imwrite(out_path, cropped)
+    return out_path
+
 # ── PDF-Generierung ──
 def generate_pdf(image_path: str, pdf_path: str,
                  cols: int = 5, rows: int = 8,
@@ -191,10 +261,11 @@ async def create_job(
     pdf_filename = f"qr-raster-{job_id}.pdf"
     pdf_path = PDFS_DIR / pdf_filename
     error_msg = None
-
     try:
+        # QR-Code automatisch erkennen und ausschneiden
+        effective_image = extract_qr_from_image(str(img_path))
         generate_pdf(
-            image_path=str(img_path),
+            image_path=effective_image,
             pdf_path=str(pdf_path),
             cols=cols,
             rows=rows,
