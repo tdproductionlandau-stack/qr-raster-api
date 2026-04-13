@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QR-Code Raster Generator</title>
+  <meta name="description" content="QR-Code Raster Generator – Erstelle ein A4-PDF mit beliebig vielen QR-Codes. Mit vollständiger Verlaufshistorie." />
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; min-height: 100vh; }
+
+    /* ── Header ── */
+    .app-header {
+      background: #fff; border-bottom: 1px solid #e5e7eb;
+      padding: 14px 20px; display: flex; align-items: center; gap: 14px;
+      position: sticky; top: 0; z-index: 100; box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    }
+    .app-icon { width: 44px; height: 44px; background: #3b5bdb; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .app-icon svg { width: 24px; height: 24px; fill: white; }
+    .app-title h1 { font-size: 18px; font-weight: 700; color: #111; }
+    .app-title p  { font-size: 13px; color: #6b7280; margin-top: 1px; }
+    .header-nav { margin-left: auto; display: flex; gap: 8px; }
+    .nav-btn {
+      padding: 8px 16px; border-radius: 8px; font-size: 14px; font-weight: 600;
+      cursor: pointer; border: 1.5px solid #e5e7eb; background: #fff; color: #374151;
+      transition: all .15s; display: inline-flex; align-items: center; gap: 6px;
+    }
+    .nav-btn:hover { background: #f3f4f6; }
+    .nav-btn.active { background: #eef2ff; border-color: #3b5bdb; color: #3b5bdb; }
+
+    /* ── Views ── */
+    .view { display: none; }
+    .view.active { display: block; }
+    .main { max-width: 720px; margin: 0 auto; padding: 20px 16px 80px; }
+
+    /* ── Card ── */
+    .card { background: #fff; border-radius: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 16px; overflow: hidden; }
+    .card-header { display: flex; align-items: center; gap: 12px; padding: 18px 20px; border-bottom: 1px solid #f3f4f6; }
+    .step-badge { width: 30px; height: 30px; background: #3b5bdb; border-radius: 50%; color: #fff; font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .card-header h2 { font-size: 16px; font-weight: 600; color: #111; }
+    .card-body { padding: 20px; }
+
+    /* ── Upload Zone ── */
+    .upload-zone {
+      border: 2px dashed #d1d5db; border-radius: 12px; padding: 36px 20px;
+      text-align: center; cursor: pointer; transition: border-color .2s, background .2s; background: #fafafa;
+    }
+    .upload-zone:hover, .upload-zone.drag-over { border-color: #3b5bdb; background: #eef2ff; }
+    .upload-zone .icon { font-size: 40px; margin-bottom: 10px; }
+    .upload-zone p { color: #6b7280; font-size: 14px; }
+    .upload-zone strong { color: #3b5bdb; }
+    .upload-zone input { display: none; }
+
+    /* ── Status ── */
+    .status-box { border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; display: flex; gap: 12px; align-items: flex-start; }
+    .status-box.success { background: #f0fdf4; border: 1px solid #bbf7d0; }
+    .status-box.warning { background: #fffbeb; border: 1px solid #fde68a; }
+    .status-box.error   { background: #fef2f2; border: 1px solid #fecaca; }
+    .status-box.info    { background: #eff6ff; border: 1px solid #bfdbfe; }
+    .status-icon { font-size: 20px; flex-shrink: 0; margin-top: 1px; }
+    .status-text h4 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .status-text p  { font-size: 13px; line-height: 1.5; }
+    .status-box.success .status-text h4 { color: #15803d; }
+    .status-box.success .status-text p  { color: #166534; }
+    .status-box.warning .status-text h4 { color: #b45309; }
+    .status-box.warning .status-text p  { color: #92400e; }
+    .status-box.error   .status-text h4 { color: #dc2626; }
+    .status-box.error   .status-text p  { color: #991b1b; }
+    .status-box.info    .status-text h4 { color: #1d4ed8; }
+    .status-box.info    .status-text p  { color: #1e40af; }
+
+    /* ── Preview Row ── */
+    .preview-row { display: flex; align-items: center; gap: 14px; padding: 12px; background: #f9fafb; border-radius: 10px; border: 1px solid #e5e7eb; }
+    .preview-thumb { width: 64px; height: 64px; border-radius: 8px; object-fit: cover; border: 1px solid #e5e7eb; flex-shrink: 0; }
+    .preview-name { flex: 1; font-size: 14px; color: #374151; font-weight: 500; word-break: break-all; min-width: 0; }
+    .preview-actions { display: flex; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
+
+    /* ── Buttons ── */
+    .btn { padding: 9px 16px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all .15s; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .btn-primary { background: #3b5bdb; color: #fff; }
+    .btn-primary:hover { background: #2f4ac0; }
+    .btn-outline { background: #fff; color: #374151; border: 1.5px solid #d1d5db; }
+    .btn-outline:hover { background: #f9fafb; border-color: #9ca3af; }
+    .btn-danger { background: #fff; color: #dc2626; border: 1.5px solid #fca5a5; }
+    .btn-danger:hover { background: #fef2f2; }
+    .btn-success { background: #16a34a; color: #fff; }
+    .btn-success:hover { background: #15803d; }
+    .btn-lg { padding: 14px 28px; font-size: 16px; border-radius: 12px; width: 100%; justify-content: center; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-reset { background: #fff; color: #6b7280; border: 1.5px solid #e5e7eb; padding: 9px 16px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: all .15s; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+    .btn-reset:hover { background: #fef2f2; color: #dc2626; border-color: #fca5a5; }
+
+    /* ── Reset Bar ── */
+    .reset-bar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+
+    /* ── Settings ── */
+    .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .setting-group label { display: block; font-size: 11px; font-weight: 700; letter-spacing: .06em; color: #9ca3af; text-transform: uppercase; margin-bottom: 8px; }
+    .stepper { display: flex; align-items: center; border: 1.5px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
+    .stepper button { width: 40px; height: 42px; background: #f9fafb; border: none; font-size: 18px; cursor: pointer; color: #374151; transition: background .15s; flex-shrink: 0; }
+    .stepper button:hover { background: #e5e7eb; }
+    .stepper span { flex: 1; text-align: center; font-size: 15px; font-weight: 600; color: #111; }
+    .stepper .unit { font-size: 12px; color: #9ca3af; font-weight: 400; }
+    .summary-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #f3f4f6; font-size: 14px; }
+    .summary-row:last-child { border-bottom: none; }
+    .summary-row .label { color: #6b7280; }
+    .summary-row .value { font-weight: 600; color: #111; }
+    .format-select { display: flex; gap: 8px; }
+    .format-btn { flex: 1; padding: 10px; border-radius: 8px; border: 1.5px solid #e5e7eb; background: #fff; font-size: 13px; font-weight: 600; cursor: pointer; text-align: center; transition: all .15s; color: #374151; }
+    .format-btn.active { border-color: #3b5bdb; background: #eef2ff; color: #3b5bdb; }
+
+    /* ── Progress ── */
+    .progress-bar { height: 6px; background: #e5e7eb; border-radius: 99px; overflow: hidden; margin-top: 12px; }
+    .progress-fill { height: 100%; background: #3b5bdb; border-radius: 99px; transition: width .3s ease; }
+
+    /* ── Spinner ── */
+    .spinner { width: 18px; height: 18px; border: 2.5px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+    .big-spinner { width: 36px; height: 36px; border: 3px solid #e5e7eb; border-top-color: #3b5bdb; border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 12px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .analyzing-overlay { text-align: center; padding: 20px; color: #6b7280; font-size: 14px; }
+    .tips { font-size: 12px; color: #9ca3af; margin-top: 10px; line-height: 1.6; }
+    .tips strong { color: #6b7280; }
+    .hidden { display: none !important; }
+
+    /* ══════════════════════════════════════
+       HISTORIE
+    ══════════════════════════════════════ */
+    .history-toolbar {
+      display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .history-search {
+      flex: 1; min-width: 200px;
+      padding: 10px 14px; border-radius: 10px;
+      border: 1.5px solid #e5e7eb; font-size: 14px; color: #111;
+      background: #fff; outline: none;
+      transition: border-color .15s;
+    }
+    .history-search:focus { border-color: #3b5bdb; }
+    .history-filter {
+      padding: 10px 14px; border-radius: 10px;
+      border: 1.5px solid #e5e7eb; font-size: 14px; color: #374151;
+      background: #fff; cursor: pointer; outline: none;
+    }
+    .history-filter:focus { border-color: #3b5bdb; }
+    .history-count {
+      font-size: 13px; color: #6b7280; white-space: nowrap;
+    }
+
+    /* ── Tabelle ── */
+    .history-table-wrap { overflow-x: auto; border-radius: 12px; border: 1px solid #e5e7eb; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    thead { background: #f9fafb; }
+    th { padding: 12px 14px; text-align: left; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: #9ca3af; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
+    td { padding: 12px 14px; border-bottom: 1px solid #f3f4f6; color: #374151; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fafafa; }
+    .badge-nr { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 8px; background: #eef2ff; color: #3b5bdb; font-weight: 700; font-size: 13px; }
+    .thumb-sm { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; border: 1px solid #e5e7eb; }
+    .qr-content { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: #6b7280; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+    .tag-success { background: #dcfce7; color: #15803d; }
+    .tag-warn    { background: #fef9c3; color: #854d0e; }
+    .action-btn { padding: 5px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid #e5e7eb; background: #fff; color: #374151; transition: all .15s; display: inline-flex; align-items: center; gap: 4px; }
+    .action-btn:hover { background: #f3f4f6; }
+    .action-btn.del:hover { background: #fef2f2; color: #dc2626; border-color: #fca5a5; }
+
+    /* ── Paginierung ── */
+    .pagination-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 10px;
+      margin-top: 16px; padding: 12px 16px;
+      background: #fff; border-radius: 12px;
+      border: 1px solid #e5e7eb;
+      font-size: 14px;
+    }
+    .pagination-info { color: #6b7280; }
+    .pagination-controls { display: flex; align-items: center; gap: 6px; }
+    .page-btn { width: 34px; height: 34px; border-radius: 8px; border: 1.5px solid #e5e7eb; background: #fff; font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s; color: #374151; }
+    .page-btn:hover:not(:disabled) { background: #eef2ff; border-color: #3b5bdb; color: #3b5bdb; }
+    .page-btn.active { background: #3b5bdb; border-color: #3b5bdb; color: #fff; }
+    .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .per-page-select { padding: 7px 12px; border-radius: 8px; border: 1.5px solid #e5e7eb; font-size: 13px; font-weight: 600; color: #374151; cursor: pointer; background: #fff; }
+    .per-page-select:focus { outline: none; border-color: #3b5bdb; }
+
+    /* ── Leer-Zustand ── */
+    .empty-state { text-align: center; padding: 60px 20px; color: #9ca3af; }
+    .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+    .empty-state p { font-size: 15px; }
+    .empty-state small { font-size: 13px; margin-top: 6px; display: block; }
+
+    /* ── Clear History ── */
+    .history-actions { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header class="app-header">
+  <div class="app-icon">
+    <svg viewBox="0 0 24 24"><path d="M3 3h7v7H3V3zm2 2v3h3V5H5zm9-2h7v7h-7V3zm2 2v3h3V5h-3zM3 14h7v7H3v-7zm2 2v3h3v-3H5zm11 0h2v2h-2v-2zm2-2h2v2h-2v-2zm-4 4h2v2h-2v-2zm4 0h2v2h-2v-2zm-2 2h2v2h-2v-2z"/></svg>
+  </div>
+  <div class="app-title">
+    <h1>QR-Code Raster Generator</h1>
+    <p id="headerSubtitle">5 × 8 = 40 QR-Codes auf A4</p>
+  </div>
+  <div class="header-nav">
+    <button class="nav-btn active" id="navGenerator" onclick="showView('generator')">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h.01M14 17h.01M17 14h.01M17 17h.01M20 14h.01M20 17h.01M14 20h.01M17 20h.01M20 20h.01"/></svg>
+      Generator
+    </button>
+    <button class="nav-btn" id="navHistory" onclick="showView('history')">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
+      Verlauf
+      <span id="historyBadge" style="background:#3b5bdb;color:#fff;border-radius:99px;padding:1px 7px;font-size:11px;margin-left:2px;display:none;">0</span>
+    </button>
+  </div>
+</header>
+
+<!-- ══════════════════════════════════════
+     VIEW: GENERATOR
+══════════════════════════════════════ -->
+<div class="view active" id="viewGenerator">
+<main class="main">
+
+  <div class="reset-bar">
+    <button class="btn-reset" onclick="resetAll()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+      Erneut versuchen / Reset
+    </button>
+  </div>
+
+  <!-- Step 1 -->
+  <div class="card">
+    <div class="card-header"><div class="step-badge">1</div><h2>QR-Code hochladen</h2></div>
+    <div class="card-body">
+      <div class="upload-zone" id="uploadZone"
+           onclick="document.getElementById('fileInput').click()"
+           ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+        <div class="icon">📷</div>
+        <p><strong>Bild auswählen</strong> oder hierher ziehen</p>
+        <p style="margin-top:6px;font-size:12px;color:#9ca3af;">JPG, PNG, HEIC – auch Kamerafotos werden erkannt</p>
+        <input type="file" id="fileInput" accept="image/*" onchange="handleFileSelect(event)" />
+      </div>
+      <div class="analyzing-overlay hidden" id="analyzingOverlay">
+        <div class="big-spinner"></div>
+        <p id="analyzingText">QR-Code wird erkannt…</p>
+      </div>
+      <div class="status-box success hidden" id="statusSuccess" style="margin-top:14px;">
+        <div class="status-icon">✅</div>
+        <div class="status-text"><h4>QR-Code erkannt!</h4><p id="statusSuccessText">–</p></div>
+      </div>
+      <div class="status-box warning hidden" id="statusWarning" style="margin-top:14px;">
+        <div class="status-icon">⚠️</div>
+        <div class="status-text">
+          <h4>Kein QR-Code erkannt</h4>
+          <p>Im Bild wurde kein QR-Code gefunden. Du kannst das Bild trotzdem verwenden – oder ein schärferes Foto machen.</p>
+        </div>
+      </div>
+      <div class="preview-row hidden" id="previewRow" style="margin-top:14px;">
+        <img class="preview-thumb" id="previewThumb" src="" alt="Vorschau" />
+        <span class="preview-name" id="previewName">–</span>
+        <div class="preview-actions">
+          <button class="btn btn-outline hidden" id="btnUseAnyway" onclick="useImageAnyway()">Trotzdem verwenden</button>
+          <button class="btn btn-danger" onclick="resetAll()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            Erneut versuchen
+          </button>
+        </div>
+      </div>
+      <p class="tips hidden" id="tipsBox">
+        <strong>Tipps:</strong> Fotografiere den QR-Code gerade von oben, bei guter Beleuchtung, ohne Spiegelungen. Je größer der QR-Code im Bild, desto besser.
+      </p>
+    </div>
+  </div>
+
+  <!-- Step 2 -->
+  <div class="card">
+    <div class="card-header"><div class="step-badge">2</div><h2>Raster-Einstellungen</h2></div>
+    <div class="card-body">
+      <div class="settings-grid">
+        <div class="setting-group"><label>Spalten</label>
+          <div class="stepper"><button onclick="adjust('cols',-1)">−</button><span id="colsVal">5 <span class="unit">Stk.</span></span><button onclick="adjust('cols',+1)">+</button></div>
+        </div>
+        <div class="setting-group"><label>Zeilen</label>
+          <div class="stepper"><button onclick="adjust('rows',-1)">−</button><span id="rowsVal">8 <span class="unit">Stk.</span></span><button onclick="adjust('rows',+1)">+</button></div>
+        </div>
+        <div class="setting-group"><label>Seitenrand</label>
+          <div class="stepper"><button onclick="adjust('margin',-1)">−</button><span id="marginVal">10 <span class="unit">mm</span></span><button onclick="adjust('margin',+1)">+</button></div>
+        </div>
+        <div class="setting-group"><label>Abstand</label>
+          <div class="stepper"><button onclick="adjust('spacing',-1)">−</button><span id="spacingVal">3 <span class="unit">mm</span></span><button onclick="adjust('spacing',+1)">+</button></div>
+        </div>
+      </div>
+      <div style="margin-top:20px;">
+        <div class="summary-row"><span class="label">Gesamt</span><span class="value" id="totalCount">40 QR-Codes</span></div>
+        <div class="summary-row">
+          <span class="label">Format</span>
+          <div class="format-select">
+            <button class="format-btn active" id="fmtA4" onclick="setFormat('A4')">A4 Hochformat</button>
+            <button class="format-btn" id="fmtA4L" onclick="setFormat('A4L')">A4 Quer</button>
+          </div>
+        </div>
+        <div class="summary-row"><span class="label">QR-Größe</span><span class="value" id="qrSizeDisplay">32 × 32 mm</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 3 -->
+  <div class="card">
+    <div class="card-header"><div class="step-badge">3</div><h2>PDF generieren</h2></div>
+    <div class="card-body">
+      <div id="generateStatus" class="status-box info hidden">
+        <div class="status-icon">⏳</div>
+        <div class="status-text"><h4 id="generateStatusTitle">Wird generiert…</h4><p id="generateStatusText">Bitte warten.</p></div>
+      </div>
+      <div class="progress-bar hidden" id="progressBar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+      <button class="btn btn-success btn-lg" id="btnGenerate" onclick="generatePDF()" disabled>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        PDF herunterladen
+      </button>
+    </div>
+  </div>
+
+</main>
+</div>
+
+<!-- ══════════════════════════════════════
+     VIEW: VERLAUF / HISTORIE
+══════════════════════════════════════ -->
+<div class="view" id="viewHistory">
+<main class="main">
+
+  <div class="card">
+    <div class="card-header">
+      <div class="step-badge" style="background:#6b7280;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
+      </div>
+      <h2>Verlaufshistorie</h2>
+      <span id="historyTotalLabel" style="margin-left:auto;font-size:13px;color:#6b7280;"></span>
+    </div>
+    <div class="card-body">
+
+      <!-- Toolbar -->
+      <div class="history-toolbar">
+        <input class="history-search" type="text" id="historySearch" placeholder="🔍  Suchen nach Dateiname, QR-Inhalt, Datum…" oninput="renderHistory()" />
+        <select class="history-filter" id="historyFilter" onchange="renderHistory()">
+          <option value="all">Alle</option>
+          <option value="success">QR erkannt</option>
+          <option value="warn">Nicht erkannt</option>
+          <option value="today">Heute</option>
+          <option value="week">Diese Woche</option>
+          <option value="month">Dieser Monat</option>
+        </select>
+        <button class="btn btn-danger" style="padding:9px 14px;font-size:13px;" onclick="clearHistory()" title="Gesamten Verlauf löschen">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          Verlauf löschen
+        </button>
+      </div>
+
+      <!-- Tabelle -->
+      <div class="history-table-wrap">
+        <table id="historyTable">
+          <thead>
+            <tr>
+              <th style="width:44px;">#</th>
+              <th style="width:56px;">Bild</th>
+              <th>Dateiname</th>
+              <th>QR-Inhalt</th>
+              <th>Einstellungen</th>
+              <th>Status</th>
+              <th>Datum &amp; Uhrzeit</th>
+              <th style="width:90px;">Aktion</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+
+      <!-- Leer-Zustand -->
+      <div class="empty-state hidden" id="historyEmpty">
+        <div class="icon">📋</div>
+        <p>Noch keine Einträge</p>
+        <small>Generiere dein erstes PDF – es erscheint hier automatisch.</small>
+      </div>
+
+      <!-- Paginierung -->
+      <div class="pagination-bar" id="paginationBar">
+        <div class="pagination-info" id="paginationInfo">–</div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:6px;font-size:13px;color:#6b7280;">
+            Einträge pro Seite:
+            <select class="per-page-select" id="perPageSelect" onchange="changePerPage()">
+              <option value="25" selected>25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="all">Alle</option>
+            </select>
+          </div>
+          <div class="pagination-controls" id="paginationControls"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</main>
+</div>
+
+<script>
+// ════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════
+const state = {
+  cols: 5, rows: 8, margin: 10, spacing: 3, format: 'A4',
+  imageFile: null, imageDataUrl: null, qrAccepted: false, qrContent: null,
+};
+
+// ════════════════════════════════════════
+//  NAVIGATION
+// ════════════════════════════════════════
+function showView(name) {
+  document.getElementById('viewGenerator').classList.toggle('active', name === 'generator');
+  document.getElementById('viewHistory').classList.toggle('active', name === 'history');
+  document.getElementById('navGenerator').classList.toggle('active', name === 'generator');
+  document.getElementById('navHistory').classList.toggle('active', name === 'history');
+  if (name === 'history') renderHistory();
+}
+
+// ════════════════════════════════════════
+//  DRAG & DROP / FILE SELECT
+// ════════════════════════════════════════
+function handleDragOver(e) { e.preventDefault(); document.getElementById('uploadZone').classList.add('drag-over'); }
+function handleDragLeave() { document.getElementById('uploadZone').classList.remove('drag-over'); }
+function handleDrop(e) {
+  e.preventDefault(); document.getElementById('uploadZone').classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('image/')) processFile(f);
+}
+function handleFileSelect(e) { const f = e.target.files[0]; if (f) processFile(f); }
+
+function processFile(file) {
+  state.imageFile = file;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    state.imageDataUrl = e.target.result;
+    showPreview(file.name, e.target.result);
+    analyzeQR(e.target.result);
+  };
+  reader.readAsDataURL(file);
+}
+
+function showPreview(name, dataUrl) {
+  document.getElementById('uploadZone').classList.add('hidden');
+  document.getElementById('previewThumb').src = dataUrl;
+  document.getElementById('previewName').textContent = name;
+  document.getElementById('previewRow').classList.remove('hidden');
+}
+
+// ════════════════════════════════════════
+//  QR-ERKENNUNG
+// ════════════════════════════════════════
+async function analyzeQR(dataUrl) {
+  document.getElementById('analyzingOverlay').classList.remove('hidden');
+  ['statusSuccess','statusWarning','tipsBox'].forEach(id => document.getElementById(id).classList.add('hidden'));
+  document.getElementById('btnUseAnyway').classList.add('hidden');
+  document.getElementById('btnGenerate').disabled = true;
+  state.qrContent = null;
+
+  let attempts = 0;
+  while (typeof jsQR === 'undefined' && attempts < 20) { await sleep(200); attempts++; }
+
+  const result = await detectQRMultiStrategy(dataUrl);
+  document.getElementById('analyzingOverlay').classList.add('hidden');
+  if (result) { showQRSuccess(result); }
+  else { showQRWarning(); }
+}
+
+async function detectQRMultiStrategy(dataUrl) {
+  const img = await loadImage(dataUrl);
+  const scales = [1.0, 1.5, 2.0, 3.0, 0.75];
+  for (const s of scales) { const r = tryDecode(img, s, false); if (r) return r; }
+  for (const s of [1.0, 1.5, 2.0]) { const r = tryDecode(img, s, true); if (r) return r; }
+  for (const s of [1.0, 2.0]) { const r = tryHighContrast(img, s); if (r) return r; }
+  for (const s of [1.0, 1.5]) { const r = tryInverted(img, s); if (r) return r; }
+  return tryAdaptive(img);
+}
+
+function loadImage(dataUrl) {
+  return new Promise(res => { const img = new Image(); img.onload = () => res(img); img.src = dataUrl; });
+}
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function tryDecode(img, scale, gray) {
+  const c = document.createElement('canvas'), ctx = c.getContext('2d');
+  c.width = Math.round(img.width*scale); c.height = Math.round(img.height*scale);
+  ctx.drawImage(img, 0, 0, c.width, c.height);
+  if (gray) { const id = ctx.getImageData(0,0,c.width,c.height), d=id.data; for(let i=0;i<d.length;i+=4){const g=Math.round(.299*d[i]+.587*d[i+1]+.114*d[i+2]);d[i]=d[i+1]=d[i+2]=g;} ctx.putImageData(id,0,0); }
+  const id = ctx.getImageData(0,0,c.width,c.height);
+  const code = jsQR(id.data, id.width, id.height, {inversionAttempts:'attemptBoth'});
+  return code ? code.data : null;
+}
+function tryHighContrast(img, scale) {
+  const c = document.createElement('canvas'), ctx = c.getContext('2d');
+  c.width = Math.round(img.width*scale); c.height = Math.round(img.height*scale);
+  ctx.drawImage(img, 0, 0, c.width, c.height);
+  const id = ctx.getImageData(0,0,c.width,c.height), d=id.data;
+  for(let i=0;i<d.length;i+=4){const g=Math.round(.299*d[i]+.587*d[i+1]+.114*d[i+2]);const b=g<128?0:255;d[i]=d[i+1]=d[i+2]=b;}
+  ctx.putImageData(id,0,0);
+  const id2=ctx.getImageData(0,0,c.width,c.height);
+  const code=jsQR(id2.data,id2.width,id2.height,{inversionAttempts:'attemptBoth'});
+  return code?code.data:null;
+}
+function tryInverted(img, scale) {
+  const c = document.createElement('canvas'), ctx = c.getContext('2d');
+  c.width = Math.round(img.width*scale); c.height = Math.round(img.height*scale);
+  ctx.drawImage(img, 0, 0, c.width, c.height);
+  const id = ctx.getImageData(0,0,c.width,c.height), d=id.data;
+  for(let i=0;i<d.length;i+=4){d[i]=255-d[i];d[i+1]=255-d[i+1];d[i+2]=255-d[i+2];}
+  ctx.putImageData(id,0,0);
+  const id2=ctx.getImageData(0,0,c.width,c.height);
+  const code=jsQR(id2.data,id2.width,id2.height,{inversionAttempts:'attemptBoth'});
+  return code?code.data:null;
+}
+function tryAdaptive(img) {
+  const c = document.createElement('canvas'), ctx = c.getContext('2d');
+  c.width = Math.round(img.width*2); c.height = Math.round(img.height*2);
+  ctx.drawImage(img, 0, 0, c.width, c.height);
+  const id = ctx.getImageData(0,0,c.width,c.height), d=id.data, w=c.width, h=c.height;
+  const gray = new Uint8Array(w*h);
+  for(let i=0;i<d.length;i+=4) gray[i/4]=Math.round(.299*d[i]+.587*d[i+1]+.114*d[i+2]);
+  const half=7;
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+    let sum=0,cnt=0;
+    for(let dy=-half;dy<=half;dy++) for(let dx=-half;dx<=half;dx++){
+      const ny=y+dy,nx=x+dx;
+      if(ny>=0&&ny<h&&nx>=0&&nx<w){sum+=gray[ny*w+nx];cnt++;}
+    }
+    const idx=(y*w+x)*4, val=gray[y*w+x]<sum/cnt-5?0:255;
+    d[idx]=d[idx+1]=d[idx+2]=val;
+  }
+  ctx.putImageData(id,0,0);
+  const id2=ctx.getImageData(0,0,c.width,c.height);
+  const code=jsQR(id2.data,id2.width,id2.height,{inversionAttempts:'attemptBoth'});
+  return code?code.data:null;
+}
+
+function showQRSuccess(content) {
+  state.qrAccepted = true; state.qrContent = content;
+  document.getElementById('statusSuccess').classList.remove('hidden');
+  const short = content && content.length>80 ? content.substring(0,80)+'…' : (content||'(kein Inhalt)');
+  document.getElementById('statusSuccessText').textContent = 'Inhalt: '+short;
+  document.getElementById('btnGenerate').disabled = false;
+}
+function showQRWarning() {
+  document.getElementById('statusWarning').classList.remove('hidden');
+  document.getElementById('btnUseAnyway').classList.remove('hidden');
+  document.getElementById('tipsBox').classList.remove('hidden');
+}
+function useImageAnyway() {
+  state.qrAccepted = true;
+  ['statusWarning','btnUseAnyway','tipsBox'].forEach(id => document.getElementById(id).classList.add('hidden'));
+  document.getElementById('statusSuccess').classList.remove('hidden');
+  document.getElementById('statusSuccessText').textContent = 'Bild wird als QR-Code-Vorlage verwendet.';
+  document.getElementById('btnGenerate').disabled = false;
+}
+
+// ════════════════════════════════════════
+//  EINSTELLUNGEN
+// ════════════════════════════════════════
+const limits = { cols:[1,20], rows:[1,30], margin:[0,50], spacing:[0,30] };
+function adjust(key, delta) { state[key] = Math.min(limits[key][1], Math.max(limits[key][0], state[key]+delta)); updateUI(); }
+function setFormat(fmt) {
+  state.format = fmt;
+  document.getElementById('fmtA4').classList.toggle('active', fmt==='A4');
+  document.getElementById('fmtA4L').classList.toggle('active', fmt==='A4L');
+  updateUI();
+}
+function updateUI() {
+  document.getElementById('colsVal').innerHTML    = state.cols    +' <span class="unit">Stk.</span>';
+  document.getElementById('rowsVal').innerHTML    = state.rows    +' <span class="unit">Stk.</span>';
+  document.getElementById('marginVal').innerHTML  = state.margin  +' <span class="unit">mm</span>';
+  document.getElementById('spacingVal').innerHTML = state.spacing +' <span class="unit">mm</span>';
+  const total = state.cols*state.rows;
+  document.getElementById('totalCount').textContent = total+' QR-Codes';
+  document.getElementById('headerSubtitle').textContent = state.cols+' × '+state.rows+' = '+total+' QR-Codes auf '+(state.format==='A4'?'A4':'A4 quer');
+  const pW=state.format==='A4'?210:297, pH=state.format==='A4'?297:210;
+  const uW=pW-2*state.margin-(state.cols-1)*state.spacing, uH=pH-2*state.margin-(state.rows-1)*state.spacing;
+  const qrS=Math.floor(Math.min(uW/state.cols, uH/state.rows));
+  document.getElementById('qrSizeDisplay').textContent = qrS+' × '+qrS+' mm';
+}
+
+// ════════════════════════════════════════
+//  RESET
+// ════════════════════════════════════════
+function resetAll() {
+  state.imageFile=null; state.imageDataUrl=null; state.qrAccepted=false; state.qrContent=null;
+  document.getElementById('uploadZone').classList.remove('hidden');
+  ['previewRow','analyzingOverlay','statusSuccess','statusWarning','generateStatus','progressBar','tipsBox']
+    .forEach(id => document.getElementById(id).classList.add('hidden'));
+  document.getElementById('btnUseAnyway').classList.add('hidden');
+  document.getElementById('btnGenerate').disabled = true;
+  document.getElementById('progressFill').style.width = '0%';
+  document.getElementById('fileInput').value = '';
+  document.getElementById('analyzingText').textContent = 'QR-Code wird erkannt…';
+  document.getElementById('generateStatus').className = 'status-box info hidden';
+}
+
+// ════════════════════════════════════════
+//  PDF GENERIERUNG
+// ════════════════════════════════════════
+async function generatePDF() {
+  if (!state.imageDataUrl) return;
+  const btn = document.getElementById('btnGenerate');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner"></div> Wird erstellt…';
+
+  const statusBox = document.getElementById('generateStatus');
+  const progressFill = document.getElementById('progressFill');
+  statusBox.className = 'status-box info';
+  statusBox.classList.remove('hidden');
+  document.getElementById('progressBar').classList.remove('hidden');
+  document.getElementById('generateStatusTitle').textContent = 'PDF wird generiert…';
+  document.getElementById('generateStatusText').textContent = 'Bitte warten.';
+  progressFill.style.width = '10%';
+
+  try {
+    let attempts = 0;
+    while (typeof window.jspdf === 'undefined' && attempts < 30) { await sleep(200); attempts++; }
+    if (typeof window.jspdf === 'undefined') throw new Error('jsPDF konnte nicht geladen werden.');
+
+    const { jsPDF } = window.jspdf;
+    const isLandscape = state.format === 'A4L';
+    const doc = new jsPDF({ orientation: isLandscape?'landscape':'portrait', unit:'mm', format:'a4' });
+    const pageW=isLandscape?297:210, pageH=isLandscape?210:297;
+    const { cols, rows, margin, spacing } = state;
+    const usableW=pageW-2*margin-(cols-1)*spacing, usableH=pageH-2*margin-(rows-1)*spacing;
+    const qrSize=Math.min(usableW/cols, usableH/rows);
+    const totalW=cols*qrSize+(cols-1)*spacing, totalH=rows*qrSize+(rows-1)*spacing;
+    const offsetX=(pageW-totalW)/2, offsetY=(pageH-totalH)/2;
+    const total=cols*rows;
+    progressFill.style.width = '30%';
+
+    const dataUrl = state.imageDataUrl;
+    let imgFormat = 'JPEG';
+    if (dataUrl.startsWith('data:image/png')) imgFormat = 'PNG';
+
+    for (let i=0; i<total; i++) {
+      const row=Math.floor(i/cols), col=i%cols;
+      doc.addImage(dataUrl, imgFormat, offsetX+col*(qrSize+spacing), offsetY+row*(qrSize+spacing), qrSize, qrSize);
+      if (i%5===0) { progressFill.style.width=(30+Math.round((i/total)*60))+'%'; await sleep(0); }
+    }
+
+    progressFill.style.width = '95%';
+    const filename = 'qr-raster-'+Date.now()+'.pdf';
+    doc.save(filename);
+    progressFill.style.width = '100%';
+
+    statusBox.className = 'status-box success';
+    document.getElementById('generateStatusTitle').textContent = '✅ PDF erstellt!';
+    document.getElementById('generateStatusText').textContent = 'Der Download startet automatisch.';
+
+    // ── In Verlauf speichern ──
+    saveToHistory({
+      filename: state.imageFile ? state.imageFile.name : 'Unbekannt',
+      thumb: state.imageDataUrl,
+      qrContent: state.qrContent,
+      qrDetected: !!state.qrContent,
+      cols: state.cols, rows: state.rows,
+      margin: state.margin, spacing: state.spacing,
+      format: state.format,
+      total: state.cols * state.rows,
+      pdfName: filename,
+      ts: Date.now(),
+    });
+
+  } catch (err) {
+    statusBox.className = 'status-box error';
+    document.getElementById('generateStatusTitle').textContent = '❌ Fehler';
+    document.getElementById('generateStatusText').textContent = err.message;
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> PDF herunterladen';
+}
+
+// ════════════════════════════════════════
+//  VERLAUF / HISTORIE  (localStorage)
+// ════════════════════════════════════════
+const STORAGE_KEY = 'qr_raster_history';
+
+function loadHistory() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
+  catch { return []; }
+}
+function saveHistory(entries) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+}
+function saveToHistory(entry) {
+  const entries = loadHistory();
+  // Laufende Nummer = höchste vorhandene + 1
+  const maxNr = entries.reduce((m, e) => Math.max(m, e.nr||0), 0);
+  entry.nr = maxNr + 1;
+  entries.unshift(entry); // Neueste zuerst
+  saveHistory(entries);
+  updateHistoryBadge();
+}
+function updateHistoryBadge() {
+  const count = loadHistory().length;
+  const badge = document.getElementById('historyBadge');
+  badge.textContent = count;
+  badge.style.display = count > 0 ? 'inline' : 'none';
+}
+function clearHistory() {
+  if (!confirm('Gesamten Verlauf unwiderruflich löschen?')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  updateHistoryBadge();
+  renderHistory();
+}
+
+// ── Paginierungs-State ──
+let histPage = 1;
+let histPerPage = 25;
+
+function changePerPage() {
+  const val = document.getElementById('perPageSelect').value;
+  histPerPage = val === 'all' ? 999999 : parseInt(val);
+  histPage = 1;
+  renderHistory();
+}
+
+function renderHistory() {
+  const all = loadHistory();
+  const search = document.getElementById('historySearch').value.trim().toLowerCase();
+  const filter = document.getElementById('historyFilter').value;
+  const now = Date.now();
+  const dayMs = 86400000;
+
+  // Filtern
+  let filtered = all.filter(e => {
+    // Text-Suche
+    if (search) {
+      const haystack = [
+        e.filename||'', e.qrContent||'', e.pdfName||'',
+        formatDate(e.ts), formatTime(e.ts),
+      ].join(' ').toLowerCase();
+      if (!haystack.includes(search)) return false;
+    }
+    // Dropdown-Filter
+    if (filter === 'success' && !e.qrDetected) return false;
+    if (filter === 'warn'    &&  e.qrDetected) return false;
+    if (filter === 'today'   && (now - e.ts) > dayMs) return false;
+    if (filter === 'week'    && (now - e.ts) > 7*dayMs) return false;
+    if (filter === 'month'   && (now - e.ts) > 30*dayMs) return false;
+    return true;
+  });
+
+  document.getElementById('historyTotalLabel').textContent =
+    filtered.length + ' von ' + all.length + ' Einträgen';
+
+  const tbody = document.getElementById('historyBody');
+  const empty = document.getElementById('historyEmpty');
+  const pagination = document.getElementById('paginationBar');
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '';
+    empty.classList.remove('hidden');
+    pagination.style.display = 'none';
+    return;
+  }
+  empty.classList.add('hidden');
+  pagination.style.display = 'flex';
+
+  // Paginierung
+  const totalPages = histPerPage >= 999999 ? 1 : Math.ceil(filtered.length / histPerPage);
+  if (histPage > totalPages) histPage = totalPages;
+  const start = (histPage - 1) * (histPerPage >= 999999 ? filtered.length : histPerPage);
+  const end   = Math.min(start + (histPerPage >= 999999 ? filtered.length : histPerPage), filtered.length);
+  const page  = filtered.slice(start, end);
+
+  // Tabelle rendern
+  tbody.innerHTML = page.map(e => `
+    <tr>
+      <td><span class="badge-nr">${e.nr}</span></td>
+      <td>${e.thumb ? `<img class="thumb-sm" src="${e.thumb}" alt="" />` : '–'}</td>
+      <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(e.filename)}">${esc(e.filename||'–')}</td>
+      <td><span class="qr-content" title="${esc(e.qrContent||'')}">
+        ${e.qrContent ? esc(e.qrContent) : '<em style="color:#d1d5db;">–</em>'}
+      </span></td>
+      <td style="font-size:12px;color:#6b7280;white-space:nowrap;">
+        ${e.cols}×${e.rows} &nbsp;|&nbsp; ${e.total} Stk.<br/>
+        ${e.format==='A4L'?'A4 Quer':'A4 Hoch'} &nbsp;|&nbsp; Rand ${e.margin}mm
+      </td>
+      <td><span class="tag ${e.qrDetected?'tag-success':'tag-warn'}">${e.qrDetected?'✓ Erkannt':'⚠ Manuell'}</span></td>
+      <td style="font-size:12px;white-space:nowrap;">${formatDate(e.ts)}<br/><span style="color:#9ca3af;">${formatTime(e.ts)}</span></td>
+      <td>
+        <button class="action-btn del" onclick="deleteEntry(${e.nr})" title="Eintrag löschen">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/></svg>
+          Löschen
+        </button>
+      </td>
+    </tr>
+  `).join('');
+
+  // Paginierungs-Info
+  document.getElementById('paginationInfo').textContent =
+    `Zeige ${start+1}–${end} von ${filtered.length} Einträgen`;
+
+  // Paginierungs-Buttons
+  const ctrl = document.getElementById('paginationControls');
+  if (totalPages <= 1) { ctrl.innerHTML = ''; return; }
+
+  let btns = '';
+  btns += `<button class="page-btn" onclick="goPage(${histPage-1})" ${histPage===1?'disabled':''}>‹</button>`;
+
+  // Seitenzahlen (max 7 anzeigen)
+  const pages = getPageRange(histPage, totalPages);
+  for (const p of pages) {
+    if (p === '…') { btns += `<span style="padding:0 4px;color:#9ca3af;">…</span>`; }
+    else { btns += `<button class="page-btn ${p===histPage?'active':''}" onclick="goPage(${p})">${p}</button>`; }
+  }
+
+  btns += `<button class="page-btn" onclick="goPage(${histPage+1})" ${histPage===totalPages?'disabled':''}>›</button>`;
+  ctrl.innerHTML = btns;
+}
+
+function getPageRange(current, total) {
+  if (total <= 7) return Array.from({length:total}, (_,i)=>i+1);
+  const pages = [];
+  if (current <= 4) { for(let i=1;i<=5;i++) pages.push(i); pages.push('…'); pages.push(total); }
+  else if (current >= total-3) { pages.push(1); pages.push('…'); for(let i=total-4;i<=total;i++) pages.push(i); }
+  else { pages.push(1); pages.push('…'); for(let i=current-1;i<=current+1;i++) pages.push(i); pages.push('…'); pages.push(total); }
+  return pages;
+}
+
+function goPage(p) { histPage = p; renderHistory(); }
+
+function deleteEntry(nr) {
+  const entries = loadHistory().filter(e => e.nr !== nr);
+  saveHistory(entries);
+  updateHistoryBadge();
+  renderHistory();
+}
+
+function esc(str) {
+  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function formatDate(ts) {
+  return new Date(ts).toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric'});
+}
+function formatTime(ts) {
+  return new Date(ts).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+
+// ════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════
+updateUI();
+updateHistoryBadge();
+</script>
+</body>
+</html>

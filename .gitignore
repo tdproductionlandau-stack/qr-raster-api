@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+uploads/
+pdfs/
+jobs.json
+*.log
