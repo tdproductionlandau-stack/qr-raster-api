@@ -13,8 +13,19 @@ import time
 import json
 import threading
 import traceback
+import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
+
+# libzbar0 automatisch installieren falls nicht vorhanden
+try:
+    from pyzbar import pyzbar as _pyzbar_test
+except Exception:
+    try:
+        subprocess.run(['apt-get', 'install', '-y', 'libzbar0'], check=True, capture_output=True)
+    except Exception:
+        pass
 
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
