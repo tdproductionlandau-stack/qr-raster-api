@@ -121,11 +121,36 @@ def extract_qr_from_image(image_path: str) -> str:
     cropped.save(out_path, 'PNG')
     return out_path
 
+# ── Bild-Trimming: weiße Ränder + dunkle Balken entfernen ──
+def trim_image(img):
+    """Entfernt weiße und dunkle Ränder rund ums Bild (Auto-Trim)."""
+    import numpy as np
+    arr = np.array(img.convert('RGB'))
+    # Maske: Pixel die NICHT fast-weiß und NICHT fast-schwarz sind → das ist der QR-Code
+    not_white = ~((arr[:,:,0] > 240) & (arr[:,:,1] > 240) & (arr[:,:,2] > 240))
+    not_black = ~((arr[:,:,0] < 30)  & (arr[:,:,1] < 30)  & (arr[:,:,2] < 30))
+    content = not_white  # Alles was nicht weiß ist (inkl. QR-Code und Text)
+    rows_with_content = np.any(content, axis=1)
+    cols_with_content = np.any(content, axis=0)
+    if not rows_with_content.any():
+        return img
+    top    = int(np.argmax(rows_with_content))
+    bottom = int(len(rows_with_content) - np.argmax(rows_with_content[::-1]))
+    left   = int(np.argmax(cols_with_content))
+    right  = int(len(cols_with_content) - np.argmax(cols_with_content[::-1]))
+    pad = 4
+    top    = max(0, top - pad)
+    bottom = min(img.height, bottom + pad)
+    left   = max(0, left - pad)
+    right  = min(img.width, right + pad)
+    return img.crop((left, top, right, bottom))
+
 # ── PDF-Generierung ──
 def generate_pdf(image_path: str, pdf_path: str,
                  cols: int = 5, rows: int = 8,
                  margin_mm: float = 10, spacing_mm: float = 3,
-                 landscape: bool = False):
+                 landscape: bool = False,
+                 job_id: str = ""):
     """Generiert ein DIN A4 PDF mit cols×rows Kopien des Bildes."""
     from reportlab.lib.pagesizes import A4, landscape as RL_landscape
     from reportlab.pdfgen import canvas
@@ -143,14 +168,17 @@ def generate_pdf(image_path: str, pdf_path: str,
     margin = margin_mm * mm
     spacing = spacing_mm * mm
 
+    # Platz für Auftragsnummer oben reservieren (nur wenn job_id angegeben)
+    label_h = 14 * mm if job_id else 0  # 14mm für den Label-Bereich
+
     usable_w = page_w - 2 * margin - (cols - 1) * spacing
-    usable_h = page_h - 2 * margin - (rows - 1) * spacing
+    usable_h = page_h - 2 * margin - (rows - 1) * spacing - label_h
     qr_size = min(usable_w / cols, usable_h / rows)
 
     total_w = cols * qr_size + (cols - 1) * spacing
     total_h = rows * qr_size + (rows - 1) * spacing
     offset_x = (page_w - total_w) / 2
-    offset_y = (page_h - total_h) / 2
+    offset_y = (page_h - total_h) / 2 + label_h  # nach unten verschieben wegen Label
 
     # Bild laden & ggf. konvertieren
     img = PILImage.open(image_path)
@@ -163,10 +191,25 @@ def generate_pdf(image_path: str, pdf_path: str,
     elif img.mode != "RGB":
         img = img.convert("RGB")
 
+    # Auto-Trim: dunkle Balken und überschüssige Ränder entfernen
+    img = trim_image(img)
+
     tmp_jpg = str(image_path) + "_tmp.jpg"
     img.save(tmp_jpg, "JPEG", quality=95)
 
     c = canvas.Canvas(pdf_path, pagesize=page_size)
+
+    # Auftragsnummer oben links
+    if job_id:
+        c.setFont("Helvetica", 9)
+        c.setFillColorRGB(0.4, 0.4, 0.4)  # grau
+        label_y = page_h - margin - 7 * mm
+        c.drawString(offset_x, label_y, f"Auftrag #{job_id}")
+        # Dünne Trennlinie
+        c.setStrokeColorRGB(0.85, 0.85, 0.85)
+        c.setLineWidth(0.5)
+        c.line(offset_x, label_y - 2 * mm, offset_x + total_w, label_y - 2 * mm)
+
     for row in range(rows):
         for col in range(cols):
             x = offset_x + col * (qr_size + spacing)
@@ -271,6 +314,7 @@ async def create_job(
             margin_mm=margin,
             spacing_mm=spacing,
             landscape=landscape,
+            job_id=job_id,
         )
     except Exception as e:
         error_msg = str(e)
