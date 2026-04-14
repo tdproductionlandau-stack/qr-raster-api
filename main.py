@@ -123,22 +123,30 @@ def extract_qr_from_image(image_path: str) -> str:
 
 # ── Bild-Trimming: weiße Ränder + dunkle Balken entfernen ──
 def trim_image(img):
-    """Entfernt weiße Ränder + schwarze Balken-Zeilen am Rand (Auto-Trim)."""
+    """Entfernt weiße Ränder + schwarze Balken-Zeilen (Auto-Trim)."""
     import numpy as np
-    arr = np.array(img.convert('RGB'))
+    from PIL import Image as PILImage
+    arr = np.array(img.convert('RGB')).copy()
     h, w = arr.shape[:2]
 
-    # Schritt 1: Schwarze Balken-Zeilen am unteren Rand entfernen
-    # Eine Zeile gilt als "schwarzer Balken" wenn >60% der Pixel fast-schwarz sind
-    is_black_pixel = (arr[:,:,0] < 50) & (arr[:,:,1] < 50) & (arr[:,:,2] < 50)
+    # Schritt 1: ALLE schwarzen Balken-Zeilen im Bild weiß machen
+    # Eine Zeile ist ein Balken wenn >25% der Pixel fast-schwarz sind
+    # UND die Zeile kein QR-Code-Muster ist (QR-Codes haben auch schwarze Pixel,
+    # aber nie eine komplett schwarze Zeile über die volle Breite)
+    is_black_pixel = (arr[:,:,0] < 60) & (arr[:,:,1] < 60) & (arr[:,:,2] < 60)
     black_ratio_per_row = is_black_pixel.sum(axis=1) / w
-    # Von unten: Zeilen entfernen die schwarze Balken sind
-    bottom_cut = h
-    for i in range(h - 1, max(h // 2, 0), -1):
-        if black_ratio_per_row[i] > 0.3:  # >30% schwarz = Balken
-            bottom_cut = i
-        else:
-            break  # Sobald keine Balken-Zeile mehr, aufhören
+
+    # Balken-Zeilen: >25% schwarz UND die schwarzen Pixel sind über die ganze Breite verteilt
+    # (nicht geclustert wie bei einem QR-Code)
+    for i in range(h):
+        if black_ratio_per_row[i] > 0.25:
+            # Prüfen ob es ein horizontaler Balken ist:
+            # Schwarze Pixel müssen über mindestens 70% der Breite verteilt sein
+            black_cols = np.where(is_black_pixel[i])[0]
+            if len(black_cols) > 0:
+                span = int(black_cols[-1]) - int(black_cols[0])
+                if span > w * 0.5:  # Balken geht über >50% der Breite
+                    arr[i, :] = [255, 255, 255]  # Zeile weiß machen
 
     # Schritt 2: Weiße Ränder trimmen
     is_white = (arr[:,:,0] > 240) & (arr[:,:,1] > 240) & (arr[:,:,2] > 240)
@@ -148,9 +156,7 @@ def trim_image(img):
     if not rows_with_content.any():
         return img
     top   = int(np.argmax(rows_with_content))
-    # bottom: Minimum aus weiß-trim und schwarzer-Balken-cut
-    bottom_white = int(h - np.argmax(rows_with_content[::-1]))
-    bottom = min(bottom_white, bottom_cut)
+    bottom = int(h - np.argmax(rows_with_content[::-1]))
     left  = int(np.argmax(cols_with_content))
     right = int(w - np.argmax(cols_with_content[::-1]))
 
@@ -162,7 +168,8 @@ def trim_image(img):
 
     if bottom <= top or right <= left:
         return img
-    return img.crop((left, top, right, bottom))
+    result = PILImage.fromarray(arr)
+    return result.crop((left, top, right, bottom))
 
 # ── PDF-Generierung ──
 def generate_pdf(image_path: str, pdf_path: str,
