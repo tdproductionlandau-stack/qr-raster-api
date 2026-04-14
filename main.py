@@ -107,11 +107,14 @@ def extract_qr_from_image(image_path: str) -> str:
     except Exception:
         return image_path
 
-    pad = max(15, int((x_max - x_min) * 0.05))
-    left   = max(0, x_min - pad)
-    top    = max(0, y_min - pad)
-    right  = min(img.width,  x_max + pad)
-    bottom = min(img.height, y_max + pad)
+    qr_w = x_max - x_min
+    qr_h = y_max - y_min
+    pad_side = max(15, int(qr_w * 0.08))   # 8% seitlich und oben
+    pad_bottom = max(20, int(qr_h * 0.30)) # 30% unten – für Text unter dem QR-Code
+    left   = max(0, x_min - pad_side)
+    top    = max(0, y_min - pad_side)
+    right  = min(img.width,  x_max + pad_side)
+    bottom = min(img.height, y_max + pad_bottom)
 
     cropped = img.crop((left, top, right, bottom))
     out_path = image_path + '_qr_crop.png'
