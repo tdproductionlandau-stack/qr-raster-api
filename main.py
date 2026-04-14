@@ -340,6 +340,42 @@ async def list_jobs():
 
 
 # ════════════════════════════════════════
+#  POST /api/detect-crop  → QR-Code erkennen und ausschneiden
+# ════════════════════════════════════════
+@app.post("/api/detect-crop", summary="QR-Code aus Bild ausschneiden")
+async def detect_crop(image: UploadFile = File(...)):
+    """Erkennt den QR-Code im Bild und gibt das ausgeschnittene Bild als PNG zurück."""
+    import tempfile, os
+    from fastapi.responses import FileResponse, JSONResponse
+    suffix = Path(image.filename).suffix if image.filename else '.jpg'
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(await image.read())
+        tmp_path = tmp.name
+    try:
+        result_path = extract_qr_from_image(tmp_path)
+        if result_path == tmp_path:
+            # Kein QR-Code gefunden – Original zurückgeben
+            return JSONResponse(status_code=422, content={"error": "no_qr", "message": "Kein QR-Code erkannt"})
+        return FileResponse(result_path, media_type="image/png", filename="qr_crop.png")
+    finally:
+        try: os.unlink(tmp_path)
+        except: pass
+
+
+# ════════════════════════════════════════
+#  GET /api/next-job-id  → Nächste Job-ID
+# ════════════════════════════════════════
+@app.get("/api/next-job-id", summary="Nächste verfügbare Job-ID")
+async def get_next_job_id():
+    """Gibt die nächste verfügbare Job-ID zurück (für Browser-generierte Jobs)."""
+    jobs = load_jobs()
+    if not jobs:
+        return {"nextId": "1001"}
+    max_id = max((int(k) for k in jobs.keys() if k.isdigit()), default=1000)
+    return {"nextId": str(max_id + 1)}
+
+
+# ════════════════════════════════════════
 #  GET /health
 # ════════════════════════════════════════
 @app.get("/health", include_in_schema=False)
