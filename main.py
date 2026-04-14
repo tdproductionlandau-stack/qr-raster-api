@@ -18,14 +18,11 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-# libzbar0 automatisch installieren falls nicht vorhanden
+# zxing-cpp voraufladen (kein System-Paket nötig)
 try:
-    from pyzbar import pyzbar as _pyzbar_test
+    import zxingcpp as _zxing_test
 except Exception:
-    try:
-        subprocess.run(['apt-get', 'install', '-y', 'libzbar0'], check=True, capture_output=True)
-    except Exception:
-        pass
+    pass
 
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
@@ -66,21 +63,20 @@ def next_job_id() -> str:
 # ── QR-Code-Erkennung & Auto-Crop ──
 def extract_qr_from_image(image_path: str) -> str:
     """
-    Erkennt den QR-Code im Bild mit pyzbar, schneidet ihn aus.
+    Erkennt den QR-Code im Bild mit zxing-cpp (kein System-Paket nötig), schneidet ihn aus.
     Gibt den Pfad zur ausgeschnittenen Datei zurück (oder original wenn kein QR gefunden).
     """
     from PIL import Image as PILImage
-    from pyzbar import pyzbar
-    import numpy as np
+    import zxingcpp
 
     def try_detect(pil_img):
-        codes = pyzbar.decode(pil_img)
-        return [c for c in codes if c.type in ('QRCODE', 'QR')]
+        results = zxingcpp.read_barcodes(pil_img)
+        return [r for r in results if 'QR' in str(r.format).upper()]
 
     # Bild laden
     try:
         img = PILImage.open(image_path)
-        if img.mode not in ('RGB', 'L'):
+        if img.mode not in ('RGB', 'L', 'RGBA'):
             img = img.convert('RGB')
     except Exception:
         return image_path
@@ -90,31 +86,32 @@ def extract_qr_from_image(image_path: str) -> str:
     if not codes:
         codes = try_detect(img.convert('L'))  # Graustufen
     if not codes:
-        # 2x hochskalieren
         big = img.resize((img.width * 2, img.height * 2), PILImage.LANCZOS)
         codes = try_detect(big)
-        if codes:
-            # Koordinaten halbieren
-            for c in codes:
-                c.rect = c.rect.__class__(c.rect.left // 2, c.rect.top // 2, c.rect.width // 2, c.rect.height // 2)
     if not codes:
-        # 0.5x verkleinern
         small = img.resize((img.width // 2, img.height // 2), PILImage.LANCZOS)
         codes = try_detect(small)
-        if codes:
-            for c in codes:
-                c.rect = c.rect.__class__(c.rect.left * 2, c.rect.top * 2, c.rect.width * 2, c.rect.height * 2)
 
     if not codes:
         return image_path
 
-    # Ersten QR-Code ausschneiden
-    rect = codes[0].rect
-    pad = max(15, int(rect.width * 0.05))
-    left   = max(0, rect.left - pad)
-    top    = max(0, rect.top - pad)
-    right  = min(img.width,  rect.left + rect.width + pad)
-    bottom = min(img.height, rect.top + rect.height + pad)
+    # Position aus zxing-cpp Position-String parsen: "x1 x2 x3 x4 y1 y2 y3 y4"
+    pos = codes[0].position
+    pos_str = str(pos)  # z.B. "483x836 723x836 723x1075 483x1076"
+    try:
+        pts = [tuple(int(v) for v in p.split('x')) for p in pos_str.split()]
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        x_min, x_max = min(xs), max(xs)
+        y_min, y_max = min(ys), max(ys)
+    except Exception:
+        return image_path
+
+    pad = max(15, int((x_max - x_min) * 0.05))
+    left   = max(0, x_min - pad)
+    top    = max(0, y_min - pad)
+    right  = min(img.width,  x_max + pad)
+    bottom = min(img.height, y_max + pad)
 
     cropped = img.crop((left, top, right, bottom))
     out_path = image_path + '_qr_crop.png'
