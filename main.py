@@ -217,7 +217,7 @@ def get_pdf_url(filename: str, request_base: str = "") -> str:
 @app.post("/api/jobs", summary="Job erstellen und PDF generieren")
 async def create_job(
     image: UploadFile = File(..., description="Logo/Bild des Users (JPG, PNG, HEIC, …)"),
-    phone: str = Form(..., description="WhatsApp-Nummer, z.B. 4915756159553"),
+    phone: Optional[str] = Form(None, description="WhatsApp-Nummer, z.B. 4915756159553 (optional für Browser-Jobs)"),
     name: Optional[str] = Form(None, description="Name des Users (optional)"),
     cols: int = Form(5, description="Spalten (Standard: 5)"),
     rows: int = Form(8, description="Zeilen (Standard: 8)"),
@@ -240,7 +240,7 @@ async def create_job(
     jobs[job_id] = {
         "jobId": job_id,
         "status": "processing",
-        "phone": phone,
+        "phone": phone or "browser",
         "name": name or "",
         "imageFile": img_filename,
         "cols": cols,
