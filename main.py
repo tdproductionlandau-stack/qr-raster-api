@@ -123,26 +123,45 @@ def extract_qr_from_image(image_path: str) -> str:
 
 # ── Bild-Trimming: weiße Ränder + dunkle Balken entfernen ──
 def trim_image(img):
-    """Entfernt weiße und dunkle Ränder rund ums Bild (Auto-Trim)."""
+    """Entfernt weiße Ränder + schwarze Balken-Zeilen am Rand (Auto-Trim)."""
     import numpy as np
     arr = np.array(img.convert('RGB'))
-    # Maske: Pixel die NICHT fast-weiß und NICHT fast-schwarz sind → das ist der QR-Code
-    not_white = ~((arr[:,:,0] > 240) & (arr[:,:,1] > 240) & (arr[:,:,2] > 240))
-    not_black = ~((arr[:,:,0] < 30)  & (arr[:,:,1] < 30)  & (arr[:,:,2] < 30))
-    content = not_white  # Alles was nicht weiß ist (inkl. QR-Code und Text)
+    h, w = arr.shape[:2]
+
+    # Schritt 1: Schwarze Balken-Zeilen am unteren Rand entfernen
+    # Eine Zeile gilt als "schwarzer Balken" wenn >60% der Pixel fast-schwarz sind
+    is_black_pixel = (arr[:,:,0] < 50) & (arr[:,:,1] < 50) & (arr[:,:,2] < 50)
+    black_ratio_per_row = is_black_pixel.sum(axis=1) / w
+    # Von unten: Zeilen entfernen die schwarze Balken sind
+    bottom_cut = h
+    for i in range(h - 1, max(h // 2, 0), -1):
+        if black_ratio_per_row[i] > 0.3:  # >30% schwarz = Balken
+            bottom_cut = i
+        else:
+            break  # Sobald keine Balken-Zeile mehr, aufhören
+
+    # Schritt 2: Weiße Ränder trimmen
+    is_white = (arr[:,:,0] > 240) & (arr[:,:,1] > 240) & (arr[:,:,2] > 240)
+    content = ~is_white
     rows_with_content = np.any(content, axis=1)
     cols_with_content = np.any(content, axis=0)
     if not rows_with_content.any():
         return img
-    top    = int(np.argmax(rows_with_content))
-    bottom = int(len(rows_with_content) - np.argmax(rows_with_content[::-1]))
-    left   = int(np.argmax(cols_with_content))
-    right  = int(len(cols_with_content) - np.argmax(cols_with_content[::-1]))
+    top   = int(np.argmax(rows_with_content))
+    # bottom: Minimum aus weiß-trim und schwarzer-Balken-cut
+    bottom_white = int(h - np.argmax(rows_with_content[::-1]))
+    bottom = min(bottom_white, bottom_cut)
+    left  = int(np.argmax(cols_with_content))
+    right = int(w - np.argmax(cols_with_content[::-1]))
+
     pad = 4
     top    = max(0, top - pad)
-    bottom = min(img.height, bottom + pad)
+    bottom = min(h, bottom + pad)
     left   = max(0, left - pad)
-    right  = min(img.width, right + pad)
+    right  = min(w, right + pad)
+
+    if bottom <= top or right <= left:
+        return img
     return img.crop((left, top, right, bottom))
 
 # ── PDF-Generierung ──
