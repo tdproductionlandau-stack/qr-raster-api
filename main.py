@@ -55,71 +55,59 @@ def next_job_id() -> str:
 # ── QR-Code-Erkennung & Auto-Crop ──
 def extract_qr_from_image(image_path: str) -> str:
     """
-    Erkennt den QR-Code im Bild, schneidet ihn aus und speichert ihn als neue Datei.
+    Erkennt den QR-Code im Bild mit pyzbar, schneidet ihn aus.
     Gibt den Pfad zur ausgeschnittenen Datei zurück (oder original wenn kein QR gefunden).
     """
-    import cv2
+    from PIL import Image as PILImage
+    from pyzbar import pyzbar
     import numpy as np
 
-    img = cv2.imread(image_path)
-    if img is None:
-        # Fallback: PIL laden und als PNG speichern
-        from PIL import Image as PILImage
-        pil_img = PILImage.open(image_path)
-        if pil_img.mode != 'RGB':
-            pil_img = pil_img.convert('RGB')
-        tmp = image_path + '_converted.png'
-        pil_img.save(tmp)
-        img = cv2.imread(tmp)
-        if img is None:
-            return image_path
+    def try_detect(pil_img):
+        codes = pyzbar.decode(pil_img)
+        return [c for c in codes if c.type in ('QRCODE', 'QR')]
 
-    detector = cv2.QRCodeDetector()
-
-    # Verschiedene Strategien für robuste Erkennung
-    strategies = [
-        img,
-        cv2.cvtColor(img, cv2.COLOR_BGR2GRAY),
-        cv2.threshold(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1],
-        cv2.resize(img, None, fx=2, fy=2),
-        cv2.resize(img, None, fx=0.5, fy=0.5),
-    ]
-
-    bbox = None
-    scale = 1.0
-    for i, proc in enumerate(strategies):
-        if len(proc.shape) == 2:
-            test = cv2.cvtColor(proc, cv2.COLOR_GRAY2BGR)
-        else:
-            test = proc
-        _, b, _ = detector.detectAndDecode(test)
-        if b is not None:
-            bbox = b
-            if i == 3:  # 2x upscale
-                scale = 2.0
-            elif i == 4:  # 0.5x downscale
-                scale = 0.5
-            break
-
-    if bbox is None:
-        # Kein QR-Code gefunden – original zurückgeben
+    # Bild laden
+    try:
+        img = PILImage.open(image_path)
+        if img.mode not in ('RGB', 'L'):
+            img = img.convert('RGB')
+    except Exception:
         return image_path
 
-    # Bounding Box berechnen (mit Scale-Korrektur)
-    pts = (bbox[0] / scale).astype(int)
-    x_min, y_min = pts[:, 0].min(), pts[:, 1].min()
-    x_max, y_max = pts[:, 0].max(), pts[:, 1].max()
+    # Verschiedene Strategien
+    codes = try_detect(img)
+    if not codes:
+        codes = try_detect(img.convert('L'))  # Graustufen
+    if not codes:
+        # 2x hochskalieren
+        big = img.resize((img.width * 2, img.height * 2), PILImage.LANCZOS)
+        codes = try_detect(big)
+        if codes:
+            # Koordinaten halbieren
+            for c in codes:
+                c.rect = c.rect.__class__(c.rect.left // 2, c.rect.top // 2, c.rect.width // 2, c.rect.height // 2)
+    if not codes:
+        # 0.5x verkleinern
+        small = img.resize((img.width // 2, img.height // 2), PILImage.LANCZOS)
+        codes = try_detect(small)
+        if codes:
+            for c in codes:
+                c.rect = c.rect.__class__(c.rect.left * 2, c.rect.top * 2, c.rect.width * 2, c.rect.height * 2)
 
-    # Padding
-    pad = max(10, int((x_max - x_min) * 0.05))
-    x_min = max(0, x_min - pad)
-    y_min = max(0, y_min - pad)
-    x_max = min(img.shape[1], x_max + pad)
-    y_max = min(img.shape[0], y_max + pad)
+    if not codes:
+        return image_path
 
-    cropped = img[y_min:y_max, x_min:x_max]
+    # Ersten QR-Code ausschneiden
+    rect = codes[0].rect
+    pad = max(15, int(rect.width * 0.05))
+    left   = max(0, rect.left - pad)
+    top    = max(0, rect.top - pad)
+    right  = min(img.width,  rect.left + rect.width + pad)
+    bottom = min(img.height, rect.top + rect.height + pad)
+
+    cropped = img.crop((left, top, right, bottom))
     out_path = image_path + '_qr_crop.png'
-    cv2.imwrite(out_path, cropped)
+    cropped.save(out_path, 'PNG')
     return out_path
 
 # ── PDF-Generierung ──

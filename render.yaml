@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: qr-raster-api
+    env: python
+    buildCommand: apt-get install -y libzbar0 && pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PUBLIC_BASE_URL
+        value: https://qr-api.das-geschenk.online
